@@ -23,14 +23,10 @@ static const SubGhzBlockConst subghz_protocol_ford_v0_const = {
 // =============================================================================
 
 static const uint8_t ford_v0_crc_matrix[64] = {
-    0xDA, 0xB5, 0x55, 0x6A, 0xAA, 0xAA, 0xAA, 0xD5,
-    0xB6, 0x6C, 0xCC, 0xD9, 0x99, 0x99, 0x99, 0xB3,
-    0x71, 0xE3, 0xC3, 0xC7, 0x87, 0x87, 0x87, 0x8F,
-    0x0F, 0xE0, 0x3F, 0xC0, 0x7F, 0x80, 0x7F, 0x80,
-    0x00, 0x1F, 0xFF, 0xC0, 0x00, 0x7F, 0xFF, 0x80,
-    0x00, 0x00, 0x00, 0x3F, 0xFF, 0xFF, 0xFF, 0x80,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7F,
-    0x23, 0x12, 0x94, 0x84, 0x35, 0xF4, 0x55, 0x84,
+    0xDA, 0xB5, 0x55, 0x6A, 0xAA, 0xAA, 0xAA, 0xD5, 0xB6, 0x6C, 0xCC, 0xD9, 0x99, 0x99, 0x99, 0xB3,
+    0x71, 0xE3, 0xC3, 0xC7, 0x87, 0x87, 0x87, 0x8F, 0x0F, 0xE0, 0x3F, 0xC0, 0x7F, 0x80, 0x7F, 0x80,
+    0x00, 0x1F, 0xFF, 0xC0, 0x00, 0x7F, 0xFF, 0x80, 0x00, 0x00, 0x00, 0x3F, 0xFF, 0xFF, 0xFF, 0x80,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7F, 0x23, 0x12, 0x94, 0x84, 0x35, 0xF4, 0x55, 0x84,
 };
 
 // =============================================================================
@@ -55,6 +51,7 @@ typedef struct SubGhzProtocolDecoderFordV0 {
     uint32_t serial;
     uint8_t button;
     uint32_t count;
+    uint8_t bs_magic;
 } SubGhzProtocolDecoderFordV0;
 
 typedef struct SubGhzProtocolEncoderFordV0 {
@@ -68,6 +65,7 @@ typedef struct SubGhzProtocolEncoderFordV0 {
     uint8_t button;
     uint32_t count;
     uint8_t bs;
+    uint8_t bs_magic;
 } SubGhzProtocolEncoderFordV0;
 
 typedef enum {
@@ -88,7 +86,8 @@ static void decode_ford_v0(
     uint16_t key2,
     uint32_t* serial,
     uint8_t* button,
-    uint32_t* count);
+    uint32_t* count,
+    uint8_t* bs_magic);
 static void encode_ford_v0(
     uint8_t header_byte,
     uint32_t serial,
@@ -135,8 +134,14 @@ const SubGhzProtocol ford_protocol_v0 = {
 // BS = (counter_low_byte + 0x6F + (button << 4)) & 0xFF
 // =============================================================================
 
-static uint8_t ford_v0_calculate_bs(uint32_t count, uint8_t button) {
-    return ((count & 0xFF) + 0x6F + (button << 4)) & 0xFF;
+static uint8_t ford_v0_calculate_bs(uint32_t count, uint8_t button, uint8_t bs_magic) {
+    uint16_t result;
+
+    //Do the BS calculation
+    result = ((uint16_t)count & 0xFF) + bs_magic + (button << 4);
+
+    //Return the last byte of result
+    return (uint8_t)(result & 0xFF);
 }
 
 // =============================================================================
@@ -206,8 +211,8 @@ static void decode_ford_v0(
     uint16_t key2,
     uint32_t* serial,
     uint8_t* button,
-    uint32_t* count) {
-    
+    uint32_t* count,
+    uint8_t* bs_magic) {
     uint8_t buf[13] = {0};
 
     for(int i = 0; i < 8; ++i) {
@@ -218,6 +223,7 @@ static void decode_ford_v0(
     buf[9] = (uint8_t)(key2 & 0xFF);
 
     uint8_t tmp = buf[8];
+    uint8_t bs = tmp;
     uint8_t parity = 0;
     uint8_t parity_any = (tmp != 0);
     while(tmp) {
@@ -250,19 +256,18 @@ static void decode_ford_v0(
     buf[12] = mixed;
     buf[6] = mixed;
 
-    uint32_t serial_le = ((uint32_t)buf[1]) | 
-                         ((uint32_t)buf[2] << 8) | 
-                         ((uint32_t)buf[3] << 16) |
+    uint32_t serial_le = ((uint32_t)buf[1]) | ((uint32_t)buf[2] << 8) | ((uint32_t)buf[3] << 16) |
                          ((uint32_t)buf[4] << 24);
 
-    *serial = ((serial_le & 0xFF) << 24) | 
-              (((serial_le >> 8) & 0xFF) << 16) |
-              (((serial_le >> 16) & 0xFF) << 8) | 
-              ((serial_le >> 24) & 0xFF);
+    *serial = ((serial_le & 0xFF) << 24) | (((serial_le >> 8) & 0xFF) << 16) |
+              (((serial_le >> 16) & 0xFF) << 8) | ((serial_le >> 24) & 0xFF);
 
     *button = (buf[5] >> 4) & 0x0F;
 
     *count = ((buf[5] & 0x0F) << 16) | (buf[6] << 8) | buf[7];
+
+    //Build the BS Magic number for this fob. (Wlll have overflow bug until other pr is acceoted and overflow calc returned)
+    *bs_magic = bs - (*button << 4) - (uint8_t)(*count & 0xFF);
 }
 
 // =============================================================================
@@ -276,7 +281,6 @@ static void encode_ford_v0(
     uint32_t count,
     uint8_t bs,
     uint64_t* key1) {
-    
     if(!key1) {
         FURI_LOG_E(TAG, "encode_ford_v0: NULL key1 pointer");
         return;
@@ -332,10 +336,18 @@ static void encode_ford_v0(
         *key1 = (*key1 << 8) | buf[i];
     }
 
-    FURI_LOG_I(TAG, "Encode: Sn=%08lX Btn=%d Cnt=%05lX BS=%02X",
-        (unsigned long)serial, button, (unsigned long)count, bs);
-    FURI_LOG_I(TAG, "Encode key1: %08lX%08lX",
-        (unsigned long)(*key1 >> 32), (unsigned long)(*key1 & 0xFFFFFFFF));
+    FURI_LOG_I(
+        TAG,
+        "Encode: Sn=%08lX Btn=%d Cnt=%05lX BS=%02X",
+        (unsigned long)serial,
+        button,
+        (unsigned long)count,
+        bs);
+    FURI_LOG_I(
+        TAG,
+        "Encode key1: %08lX%08lX",
+        (unsigned long)(*key1 >> 32),
+        (unsigned long)(*key1 & 0xFFFFFFFF));
 }
 
 // =============================================================================
@@ -361,6 +373,7 @@ void* subghz_protocol_encoder_ford_v0_alloc(SubGhzEnvironment* environment) {
     instance->button = 0;
     instance->count = 0;
     instance->bs = 0;
+    instance->bs_magic = 0;
 
     FURI_LOG_I(TAG, "Encoder allocated");
     return instance;
@@ -382,7 +395,9 @@ static void subghz_protocol_encoder_ford_v0_get_upload(SubGhzProtocolEncoderFord
     uint64_t tx_key1 = ~instance->key1;
     uint16_t tx_key2 = ~instance->key2;
 
-    FURI_LOG_I(TAG, "Building upload: key1=%08lX%08lX key2=%04X",
+    FURI_LOG_I(
+        TAG,
+        "Building upload: key1=%08lX%08lX key2=%04X",
         (unsigned long)(instance->key1 >> 32),
         (unsigned long)(instance->key1 & 0xFFFFFFFF),
         instance->key2);
@@ -535,7 +550,9 @@ SubGhzProtocolStatus
         furi_string_free(temp_str);
 
         uint8_t header_byte = (uint8_t)(original_key1 >> 56);
-        FURI_LOG_I(TAG, "Original key1: %08lX%08lX, header=0x%02X",
+        FURI_LOG_I(
+            TAG,
+            "Original key1: %08lX%08lX, header=0x%02X",
             (unsigned long)(original_key1 >> 32),
             (unsigned long)(original_key1 & 0xFFFFFFFF),
             header_byte);
@@ -566,10 +583,22 @@ SubGhzProtocolStatus
         instance->generic.cnt = instance->count;
         FURI_LOG_I(TAG, "Counter: 0x%05lX", (unsigned long)instance->count);
 
-        // Calculate BS from counter and button (not from saved file!)
-        instance->bs = ford_v0_calculate_bs(instance->count, instance->button);
-        FURI_LOG_I(TAG, "Calculated BS: 0x%02X (from Cnt=0x%05lX, Btn=0x%02X)",
-            instance->bs, (unsigned long)instance->count, instance->button);
+        flipper_format_rewind(flipper_format);
+        uint32_t bs_magic_temp = 0;
+        if(!flipper_format_read_uint32(flipper_format, "BSMagic", &bs_magic_temp, 1))
+            instance->bs_magic = 0x6F; //For Backward compatibility
+        else
+            instance->bs_magic = (uint8_t)bs_magic_temp;
+
+        // Calculate BS from counter and button, as well as the BS Magic Number we pulled on decode.
+        instance->bs = ford_v0_calculate_bs(instance->count, instance->button, instance->bs_magic);
+        FURI_LOG_I(
+            TAG,
+            "Calculated BS: 0x%02X (from Cnt=0x%05lX, Btn=0x%02X, BSMagic=0x%02X))",
+            instance->bs,
+            (unsigned long)instance->count,
+            instance->button,
+            instance->bs_magic);
 
         encode_ford_v0(
             header_byte,
@@ -585,8 +614,12 @@ SubGhzProtocolStatus
         uint8_t calculated_crc = ford_v0_calculate_crc_for_tx(instance->key1, instance->bs);
         instance->key2 = ((uint16_t)instance->bs << 8) | calculated_crc;
 
-        FURI_LOG_I(TAG, "Final key2: 0x%04X (BS=0x%02X, CRC=0x%02X)",
-            instance->key2, instance->bs, calculated_crc);
+        FURI_LOG_I(
+            TAG,
+            "Final key2: 0x%04X (BS=0x%02X, CRC=0x%02X)",
+            instance->key2,
+            instance->bs,
+            calculated_crc);
 
         flipper_format_rewind(flipper_format);
         if(!flipper_format_read_uint32(
@@ -603,8 +636,11 @@ SubGhzProtocolStatus
 
         instance->encoder.is_running = true;
 
-        FURI_LOG_I(TAG, "Encoder ready: size=%zu repeat=%u",
-            instance->encoder.size_upload, instance->encoder.repeat);
+        FURI_LOG_I(
+            TAG,
+            "Encoder ready: size=%zu repeat=%u",
+            instance->encoder.size_upload,
+            instance->encoder.repeat);
 
         ret = SubGhzProtocolStatusOk;
     } while(false);
@@ -663,10 +699,15 @@ static bool ford_v0_process_data(SubGhzProtocolDecoderFordV0* instance) {
     if(instance->bit_count == 80) {
         uint16_t key2_raw = (uint16_t)(instance->data_low & 0xFFFF);
         uint16_t key2 = ~key2_raw;
-        
+
         decode_ford_v0(
-            instance->key1, key2, 
-            &instance->serial, &instance->button, &instance->count);
+            instance->key1,
+            key2,
+            &instance->serial,
+            &instance->button,
+            &instance->count,
+            &instance->bs_magic);
+
         instance->key2 = key2;
         return true;
     }
@@ -691,7 +732,7 @@ void subghz_protocol_decoder_ford_v0_free(void* context) {
 void subghz_protocol_decoder_ford_v0_reset(void* context) {
     furi_assert(context);
     SubGhzProtocolDecoderFordV0* instance = context;
-    
+
     instance->decoder.parser_step = FordV0DecoderStepReset;
     instance->decoder.te_last = 0;
     instance->manchester_state = ManchesterStateMid1;
@@ -704,6 +745,7 @@ void subghz_protocol_decoder_ford_v0_reset(void* context) {
     instance->serial = 0;
     instance->button = 0;
     instance->count = 0;
+    instance->bs_magic = 0;
 }
 
 void subghz_protocol_decoder_ford_v0_feed(void* context, bool level, uint32_t duration) {
@@ -839,6 +881,9 @@ SubGhzProtocolStatus subghz_protocol_decoder_ford_v0_serialize(
         flipper_format_write_uint32(flipper_format, "Btn", &temp, 1);
 
         flipper_format_write_uint32(flipper_format, "Cnt", &instance->count, 1);
+
+        temp = (uint32_t)instance->bs_magic;
+        flipper_format_write_uint32(flipper_format, "BSMagic", &temp, 1);
     }
 
     return ret;
@@ -873,6 +918,12 @@ SubGhzProtocolStatus
 
         flipper_format_read_uint32(flipper_format, "Cnt", &instance->count, 1);
         instance->generic.cnt = instance->count;
+
+        uint32_t bs_magic_temp = 0;
+        if(flipper_format_read_uint32(flipper_format, "BSMagic", &bs_magic_temp, 1))
+            instance->bs_magic = bs_magic_temp;
+        else
+            instance->bs_magic = 0x6F; //For backward psf file compatibiility.
     }
 
     return ret;
@@ -901,7 +952,8 @@ void subghz_protocol_decoder_ford_v0_get_string(void* context, FuriString* outpu
         "Key1:%08lX%08lX\r\n"
         "Key2:%04X\r\n"
         "Sn:%08lX Btn:%02X:%s\r\n"
-        "Cnt:%05lX BS:%02X CRC:%02X\r\n",
+        "Cnt:%05lX BS:%02X CRC:%02X\r\n"
+        "BSMagic:%02X\r\n",
         instance->generic.protocol_name,
         instance->generic.data_count_bit,
         crc_ok ? "OK" : "BAD",
@@ -913,5 +965,6 @@ void subghz_protocol_decoder_ford_v0_get_string(void* context, FuriString* outpu
         button_name,
         (unsigned long)instance->count,
         (instance->key2 >> 8) & 0xFF,
-        instance->key2 & 0xFF);
+        instance->key2 & 0xFF,
+        instance->bs_magic);
 }
