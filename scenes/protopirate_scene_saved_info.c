@@ -149,6 +149,26 @@ void protopirate_scene_saved_info_on_enter(void* context) {
     }
 
     flipper_format_rewind(ff);
+    if(flipper_format_read_string(ff, "Key", temp_str)) {
+        furi_string_cat_printf(info_str, "Key1: %s\n", furi_string_get_cstr(temp_str));
+    }
+
+    flipper_format_rewind(ff);
+    if(flipper_format_read_string(ff, "Key_2", temp_str)) {
+        furi_string_cat_printf(info_str, "Key2: %s\n", furi_string_get_cstr(temp_str));
+    }
+
+    flipper_format_rewind(ff);
+    if(flipper_format_read_uint32(ff, "ValidationField", &temp_data, 1)) {
+        furi_string_cat_printf(info_str, "ValField: %04X\n", (uint16_t)temp_data);
+    }
+
+    flipper_format_rewind(ff);
+    if(flipper_format_read_uint32(ff, "Seed", &temp_data, 1)) {
+        furi_string_cat_printf(info_str, "Seed: %02X\n", (uint8_t)temp_data);
+    }
+
+    flipper_format_rewind(ff);
     if(flipper_format_read_string(ff, "Manufacture", temp_str)) {
         furi_string_cat_printf(info_str, "Manufacture: %s\n", furi_string_get_cstr(temp_str));
     }

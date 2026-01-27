@@ -148,6 +148,29 @@ static bool protopirate_storage_write_capture_data(
         flipper_format_write_uint32(save_file, "Type", &uint32_value, 1);
 
     flipper_format_rewind(flipper_format);
+    if(flipper_format_read_uint32(flipper_format, "Seed", &uint32_value, 1))
+        flipper_format_write_uint32(save_file, "Seed", &uint32_value, 1);
+
+    flipper_format_rewind(flipper_format);
+    uint8_t val_field[2];
+    if(flipper_format_read_hex(flipper_format, "ValidationField", val_field, 2)) {
+        flipper_format_write_hex(save_file, "ValidationField", val_field, 2);
+    } else {
+        flipper_format_rewind(flipper_format);
+        if(flipper_format_read_uint32(flipper_format, "ValidationField", &uint32_value, 1))
+            flipper_format_write_uint32(save_file, "ValidationField", &uint32_value, 1);
+    }
+
+    flipper_format_rewind(flipper_format);
+    if(flipper_format_read_string(flipper_format, "Key_2", string_value))
+        flipper_format_write_string(save_file, "Key_2", string_value);
+
+    flipper_format_rewind(flipper_format);
+    uint8_t key1_buf[8];
+    if(flipper_format_read_hex(flipper_format, "Key1", key1_buf, 8))
+        flipper_format_write_hex(save_file, "Key1", key1_buf, 8);
+
+    flipper_format_rewind(flipper_format);
     if(flipper_format_read_uint32(flipper_format, "Check", &uint32_value, 1))
         flipper_format_write_uint32(save_file, "Check", &uint32_value, 1);
 
